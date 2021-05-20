@@ -7,38 +7,24 @@ Made with love by Sigmoid.
 # Importing all needed libraries.
 import pickle
 import shelve
-from norm import TextNormalizer
-
-# Importing NLP related libraries.
-from nltk.corpus import stopwords
-from nltk.stem import PorterStemmer
-from nltk.tokenize import word_tokenize
-
-# Importing the scikit-learn pipeline attributes.
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import MaxAbsScaler
 
 # Importing the chat bot class.
 from telebot import telegram_bot
 
-# Defining the pseudo data base.
-database = shelve.open('database')
+# Import everything text preprocessing related
+from norm import *
 
-# Loading the model, vectorizer and scaler.
-norm = TextNormalizer(stopwords.words('english'),
-                      PorterStemmer(),
-                      word_tokenize)
-svc = pickle.load(open('model.obj', 'rb'))
-vectorizer = pickle.load(open('vectorizer.obj', 'rb'))
-
-# Setting up the pipeline.
-pipe = Pipeline([('text_normalizer', norm),
-                 ('vectorizer', vectorizer),
-                 ('svc', svc)])
+# Creating the pipelines
+tech_nontech_pipeline = pickle.load(open('Tech-Nontech.pkl', 'rb'))
+technology_pipepline = pickle.load(open('tech_clsf_v2.pkl', 'rb'))
+sentiment_pipeline = pickle.load(open('Sentyment_analysis.pkl', 'rb'))
 
 # Creating the telegram bot.
-tbot = telegram_bot(pipeline=pipe,
-                    db=database)
+tbot = telegram_bot(
+    tech_nontech_pipeline=tech_nontech_pipeline,
+    sentiment_pipeline=sentiment_pipeline,
+    tech_cls_pipeline=technology_pipepline
+)
 update_id = None
 
 # Generating the infinite loop.

@@ -7,6 +7,8 @@ Made with love by Sigmoid.
 import json
 import requests
 import random
+from database import Messages
+from googleapiclient.discovery import build
 
 # Predifined phrases.
 greetings = ["Hi"]
@@ -18,7 +20,7 @@ thank_response = ['You\'re welcome.', 'No problem.', 'No worries.', ' My pleasur
 
 # The telegram bot class.
 class telegram_bot:
-    def __init__(self, pipeline : 'sklearn.pipeline.Pipeline', db : 'shelve.DbfilenameShelf') -> None:
+    def __init__(self, tech_nontech_pipeline : 'sklearn.pipeline.Pipeline', sentiment_pipeline : 'sklearn.pipeline.Pipeline', tech_cls_pipeline : 'sklearn.pipeline.Pipeline') -> None:
         '''
             The constructor of the telegram bot.
         :param pipeline: 'sklearn.pipeline.Pipeline'
@@ -27,12 +29,60 @@ class telegram_bot:
             The data storing object from shelve.
         '''
         # Setting up the token and the url for the bot.
-        self.token = '1665743345:AAFYLquDUNvq9R5JMCeRoapqyxX-0ctkz1Y'
+        self.token = '956587904:AAG8PfZl5hQmbou_f8IvqQT7Tf2unyvJ1LY'
         self.url = f"https://api.telegram.org/bot{self.token}"
 
+        # google api keys and token
+        #  The api_key can be acquired from https://developers.google.com/custom-search/v1/overview
+        self.api_key = 'AIzaSyA6YferwfRzHqtBkmZSM5dVXmVMZbpNDjM'
+
+        # You can create a custom search engine and select what web pages to search on https://cse.google.com/cse/all
+        # from there you can also acquire the search_engine_id
+        self.search_engine_id = '90c5898ceb36f6a9d'
+
+        # database
+        self.db_manager = Messages()
+
+        # memes kekw hehedoge
+        self.memes_list = [
+            'https://assets3.thrillist.com/v1/image/2625863/1584x3000/scale;jpeg_quality=60.jpg',
+            'https://pbs.twimg.com/media/B7Q9Fx7CMAAywPR?format=jpg&name=900x900',
+            'https://pbs.twimg.com/media/C25DGOBXUAEsUy1?format=jpg&name=large',
+            'https://pbs.twimg.com/media/DIBql-6VYAEKAXz?format=jpg&name=medium'
+        ]
+
         # Setting up the pipeline and the pseudo data base.
-        self.pipeline = pipeline
-        self.db = db
+        self.tech_nontech_pipeline = tech_nontech_pipeline
+        self.sentiment_pipeline = sentiment_pipeline
+        self.tech_cls_pipeline = tech_cls_pipeline
+
+        # encouraging messages
+        self.pep_talk = [
+            'Everything is going to be ok', 'Rome wasn\'t built in one day', 'Sleep, Eat, Code, Repeat', 'Just *ucking do it'
+        ]
+
+    def google_search(self, search_term : str, **kwargs):
+        '''
+            This functions queries a custom google based search engine.
+        :param search_term: str
+            The query term
+        '''
+        service = build("customsearch", "v1", developerKey=self.api_key)
+        result = service.cse().list(q=search_term, cx=self.search_engine_id, **kwargs).execute()
+        return [ r['link'] for r in result['items'][ : 3]]
+
+    def send_meme(self, chat_id : int, photo=None):
+        '''
+            This function sends a photo to a telegram chat
+        :param chat_id: int
+            The id of the chat where the bot sends the picture
+        '''
+        if photo is None:
+            photo = random.choice(self.memes_list)
+        res = requests.post(
+            f'https://api.telegram.org/bot{self.token}/sendPhoto?chat_id={chat_id}&photo={photo}',
+        )
+        res = json.loads(res.content)
 
     def choose_reply(self, user_msg : str, chat_id : int, user_id : int, name : str) -> None:
         '''
@@ -64,11 +114,8 @@ class telegram_bot:
             # If the text message is nothing above we will verify if it isn't prostitute offer using the pipeline.
             else:
                 # Verifying the message.
-                (bot_response, state) = self.verify_msg(user_msg, chat_id, user_id, name)
+                bot_response = self.verify_msg(user_msg, chat_id, user_id, name)
 
-                # Kicking the user is it exceted the number of chances.
-                if state == -1:
-                    self.kick_user(chat_id, user_id)
                 # Sending the last message.
                 self.send_message(bot_response, chat_id)
         else:
@@ -88,27 +135,41 @@ class telegram_bot:
         :param name: str
             The name of the user that send this message.
         '''
-        # Getting the prediction from the pipeline.
-        prediction = self.pipeline.predict([user_msg])
+        # Getting the prediction from the tech-non-tech pipeline.
+        prediction = self.tech_nontech_pipeline.predict([user_msg])
 
-        # If the text if a prostitute offer that the chatbot will take a point from the user.
-        if prediction[0] == 1:
-            if f'{chat_id}|{user_id}' in self.db:
+        # Acquiring the sentiment score from the sentiment pipeline
+        sentiment_score = self.sentiment_pipeline.predict_proba([ user_msg ])[0][1]
 
-                # If the user is present in the data base and has only one point it will be kicked from the chat.
-                if self.db[f'{chat_id}|{user_id}'] == 1:
-                    return f"dear {name} = you are banned", -1
-                else:
-                    # If the user has more thant one points the chatbot will take only on point
-                    self.db[f'{chat_id}|{user_id}'] -= 1
-                    return f"Dear {name} - if you will send {self.db[f'{chat_id}|{user_id}']} more messages like this you will be banned", 1
-            else:
-                # Adding the user to the data base it it doesnt exists.
-                self.db[f'{chat_id}|{user_id}'] = 3
-                return f"Dear {name} - you have 2 more chances", 1
+        if sentiment_score < 0.6:
+            # sending to the user a pep talk and a meme
+            self.send_message(random.choice(self.pep_talk), chat_id=chat_id)
+            self.send_meme(chat_id=chat_id)
+            new_prediction = 'Nontech'
+
+        elif prediction[0] == 'Nontech':
+            # doing nothing just setting things
+            message = 'Nontech'
+            new_prediction = 'Nontech'
+
         else:
-            # If model deosn't detect any prostitute offer nothing happens.
-            return "", 1
+            # getting which technology the user talks about 
+            message = 'Tech'
+            new_prediction = self.tech_cls_pipeline.predict([user_msg])[0]
+            # asking google for help :)
+            links = self.google_search(search_term=user_msg)
+            self.send_message('This may be helpful for you: ', chat_id)
+            # sending the list of results
+            for link in links:
+                self.send_message(link, chat_id)
+
+        # saving message related information in the database
+        self.db_manager.insertOne(chat_id=chat_id, user_id=user_id, content=user_msg, score=sentiment_score, technology=new_prediction)
+        # sending a meme aleatorilly
+        if random.choice([ 1, 0, 0, 0, 0 ]):
+            mean_score = self.db_manager.userMeanScore(user_id=user_id)
+            if mean_score < 0.7:
+                self.send_meme(chat_id=chat_id)
 
     def get_updates(self, offset : int =None) -> dict:
         '''
@@ -135,14 +196,3 @@ class telegram_bot:
         url = self.url + f'/sendMessage?chat_id={chat_id}&text={msg}'
         if msg is not None:
             requests.get(url)
-
-    def kick_user(self, chat_id : int, user_id : int) -> None:
-        '''
-            This function allows the chatbot to kick a user.
-        :param chat_id:
-            The id of the chat.
-        :param user_id:
-            The id of user.
-        '''
-        url = self.url + f'/kickChatMember?chat_id={chat_id}&user_id={user_id}'
-        requests.get(url)
