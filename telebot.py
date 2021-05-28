@@ -141,7 +141,7 @@ class telegram_bot:
         # Acquiring the sentiment score from the sentiment pipeline
         sentiment_score = self.sentiment_pipeline.predict_proba([ user_msg ])[0][1]
 
-        if sentiment_score < 0.6:
+        if sentiment_score < 0.5:
             # sending to the user a pep talk and a meme
             self.send_message(random.choice(self.pep_talk), chat_id=chat_id)
             self.send_meme(chat_id=chat_id)
